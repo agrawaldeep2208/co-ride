@@ -1,57 +1,62 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Car, TrendingUp, Users, Star, AlertCircle, Loader2 } from 'lucide-react';
+import { Car, TrendingUp, Users, Star, AlertCircle, Loader2, ShieldCheck, IndianRupee } from 'lucide-react';
 import Layout from '../../components/Layout';
 import { useAuth } from '../../context/AuthContext';
-
-interface Activity {
-  id: string;
-  type: 'ride' | 'request';
-  action: string;
-  route: string;
-  time: string;
-}
+import EarningsTrajectoryChart from '../../components/analytics/EarningsTrajectoryChart';
+import MethodDistributionChart from '../../components/analytics/MethodDistributionChart';
+import LocationRevenueChart from '../../components/analytics/LocationRevenueChart';
 
 const iconMap = {
   Car,
   Users,
   TrendingUp,
-  Star
+  Star,
+  ShieldCheck: ShieldCheck
 };
 
 export default function Dashboard() {
   const { user } = useAuth();
   const [stats, setStats] = useState<any[]>([]);
-  const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
+  const [analytics, setAnalytics] = useState<{ chartData: any[], pieData: any[], locationData: any[] }>({
+    chartData: [],
+    pieData: [],
+    locationData: []
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
+        setLoading(true);
         const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5001/api/admin/stats', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+        
+        // 1. Fetch Basic Stats
+        const statsRes = await fetch('http://localhost:5001/api/admin/stats', {
+          headers: { 'Authorization': `Bearer ${token}` }
         });
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch dashboard data');
-        }
-
-        const data = await response.json();
+        if (!statsRes.ok) throw new Error('Failed to fetch stats');
+        const statsData = await statsRes.json();
         
-        // Map icon strings to components
-        const mappedStats = data.stats.map((stat: any) => ({
+        const mappedStats = statsData.stats.map((stat: any) => ({
           ...stat,
           icon: iconMap[stat.icon as keyof typeof iconMap] || Car
         }));
-
         setStats(mappedStats);
-        setRecentActivity(data.recentActivity);
+
+        // 2. Fetch Analytics
+        const analyticsRes = await fetch('http://localhost:5001/api/admin/analytics', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (analyticsRes.ok) {
+           const analyticsData = await analyticsRes.json();
+           setAnalytics(analyticsData);
+        }
+
       } catch (err: any) {
-        console.error('Error fetching admin stats:', err);
+        console.error('Error fetching admin dashboard:', err);
         setError(err.message);
       } finally {
         setLoading(false);
@@ -61,23 +66,12 @@ export default function Dashboard() {
     fetchDashboardData();
   }, []);
 
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-    
-    if (diffInSeconds < 60) return 'Just now';
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
-    return date.toLocaleDateString();
-  };
-
   if (loading) {
     return (
       <Layout>
         <div className="flex flex-col items-center justify-center min-h-[400px]">
           <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
-          <p className="text-gray-600 font-medium">Loading Dashboard Data...</p>
+          <p className="text-gray-600 font-medium">Analyzing Platform Performance...</p>
         </div>
       </Layout>
     );
@@ -103,36 +97,73 @@ export default function Dashboard() {
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome back, {user?.name}!
-          </h1>
-          <p className="text-gray-600">Here's a snapshot of the platform's performance</p>
+      <div className="max-w-6xl mx-auto space-y-10">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-black text-gray-900 mb-2">
+              Admin Control Center
+            </h1>
+            <p className="text-gray-500 font-medium tracking-tight">System-wide health and performance metrics</p>
+          </div>
+          <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-100">
+            <div className="p-2 bg-blue-50 rounded-xl">
+              <IndianRupee className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Platform GMV</p>
+              <p className="text-sm font-black text-gray-900">
+                ₹{analytics.chartData.reduce((acc, curr) => acc + curr.earnings, 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {/* Global Statistics Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {stats.map((stat, index) => (
-            <div key={index} className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow">
-              <div className="flex items-center justify-between mb-4">
-                <div className={`${stat.color} w-12 h-12 rounded-lg flex items-center justify-center`}>
-                  <stat.icon className="w-6 h-6 text-white" />
-                </div>
+            <div key={index} className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 transition-all hover:shadow-md hover:-translate-y-1">
+              <div className={`${stat.color} w-12 h-12 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-gray-100`}>
+                <stat.icon className="w-6 h-6 text-white" />
               </div>
-              <p className="text-2xl font-bold text-gray-900 mb-1">{stat.value}</p>
-              <p className="text-sm text-gray-600">{stat.label}</p>
+              <p className="text-3xl font-black text-gray-900 mb-1 leading-none">
+                {stat.value}
+              </p>
+              <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest leading-tight">{stat.label}</p>
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Analytics Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <EarningsTrajectoryChart 
+                data={analytics.chartData} 
+                title="Platform Growth Trajectory" 
+            />
+            <LocationRevenueChart data={analytics.locationData} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+            <div className="lg:col-span-1">
+                <MethodDistributionChart data={analytics.pieData} />
+            </div>
+            <div className="lg:col-span-2 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-[40px] p-8 border border-blue-100 flex flex-col justify-center">
+                <h4 className="text-xl font-black text-blue-900 mb-2">Expansion Insight</h4>
+                <p className="text-blue-700 font-medium">
+                    Your platform is performing strongest in <span className="font-black underline">{analytics.locationData[0]?.location || 'N/A'}</span>. 
+                    Consider running targeted promotions in <span className="font-black">{analytics.locationData[1]?.location || 'surrounding areas'}</span> to boost regional density.
+                </p>
+            </div>
+        </div>
+
+        {/* Quick Admin Navigation */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <Link
             to="/admin/users"
             className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl shadow-xl p-8 text-white hover:scale-[1.02] transition-all group"
           >
             <Users className="w-12 h-12 mb-4 group-hover:rotate-12 transition-transform" />
-            <h3 className="text-2xl font-black mb-2 uppercase tracking-tighter">User Management</h3>
-            <p className="text-blue-100 font-bold opacity-80 uppercase text-xs tracking-widest">Monitor, verify & manage platform users</p>
+            <h3 className="text-xl font-black mb-1 uppercase tracking-tighter">User Base</h3>
+            <p className="text-blue-100 font-bold opacity-80 uppercase text-[10px] tracking-widest">Verify & manage accounts</p>
           </Link>
 
           <Link
@@ -140,42 +171,18 @@ export default function Dashboard() {
             className="bg-gradient-to-br from-purple-600 to-pink-700 rounded-2xl shadow-xl p-8 text-white hover:scale-[1.02] transition-all group"
           >
             <Car className="w-12 h-12 mb-4 group-hover:rotate-12 transition-transform" />
-            <h3 className="text-2xl font-black mb-2 uppercase tracking-tighter">Ride Oversight</h3>
-            <p className="text-purple-100 font-bold opacity-80 uppercase text-xs tracking-widest">Review, moderate & analyze system-wide rides</p>
+            <h3 className="text-xl font-black mb-1 uppercase tracking-tighter">Ride Oversight</h3>
+            <p className="text-purple-100 font-bold opacity-80 uppercase text-[10px] tracking-widest">System-wide monitoring</p>
           </Link>
-        </div>
 
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">Recent Activity</h2>
-          <div className="space-y-6">
-            {recentActivity.length > 0 ? (
-              recentActivity.map((activity) => (
-                <div key={activity.id} className="flex items-start space-x-4 pb-6 border-b last:border-0 last:pb-0">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    activity.type === 'ride' ? 'bg-blue-100' : 'bg-purple-100'
-                  }`}>
-                    {activity.type === 'ride' ? (
-                      <Car className={`w-5 h-5 ${activity.type === 'ride' ? 'text-blue-600' : 'text-purple-600'}`} />
-                    ) : (
-                      <Users className="w-5 h-5 text-purple-600" />
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-gray-900">{activity.action}</p>
-                    <p className="text-gray-600 text-sm">{activity.route}</p>
-                    <p className="text-xs text-gray-400 mt-1">{formatTime(activity.time)}</p>
-                  </div>
-                  <div className="text-xs font-medium px-2 py-1 rounded bg-gray-100 text-gray-600 uppercase">
-                    {activity.type}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                No recent activity to show
-              </div>
-            )}
-          </div>
+          <Link
+            to="/admin/verifications"
+            className="bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl shadow-xl p-8 text-white hover:scale-[1.02] transition-all group"
+          >
+            <ShieldCheck className="w-12 h-12 mb-4 group-hover:rotate-12 transition-transform" />
+            <h3 className="text-xl font-black mb-1 uppercase tracking-tighter">Verifications</h3>
+            <p className="text-orange-100 font-bold opacity-80 uppercase text-[10px] tracking-widest">Approve driver documents</p>
+          </Link>
         </div>
       </div>
     </Layout>

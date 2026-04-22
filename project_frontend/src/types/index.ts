@@ -11,6 +11,7 @@ export interface User {
   rating: number;
   drivingLicenseNumber?: string | null;
   drivingLicenseImage?: string | null;
+  licenseStatus: 'unuploaded' | 'pending' | 'verified' | 'rejected';
   createdAt: string;
 }
 

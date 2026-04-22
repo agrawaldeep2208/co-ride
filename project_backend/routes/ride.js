@@ -21,6 +21,17 @@ router.post('/', protect, async (req, res) => {
             totalSeats,
             pricePerSeat
         } = req.body;
+        
+        // Check if user is verified (Admins bypass this)
+        const User = require('../models/User');
+        const currentUser = await User.findById(req.user._id);
+        
+        if (currentUser.role === 'user' && currentUser.licenseStatus !== 'verified') {
+            return res.status(403).json({ 
+                message: 'Document Verification Required', 
+                detail: 'Your driving license must be verified by an admin before you can create a ride. Status: ' + currentUser.licenseStatus 
+            });
+        }
 
         // Verify the vehicle belongs to the user
         const vehicle = await Vehicle.findOne({ _id: vehicle_id, owner_id: req.user._id });

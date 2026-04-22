@@ -37,6 +37,11 @@ const userSchema = new mongoose.Schema({
         type: String, // Store image path
         default: null,
     },
+    licenseStatus: {
+        type: String,
+        enum: ['unuploaded', 'pending', 'verified', 'rejected'],
+        default: 'unuploaded',
+    },
     createdAt: {
         type: Date,
         default: Date.now,

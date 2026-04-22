@@ -22,7 +22,7 @@ const paymentSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['pending', 'completed'],
+        enum: ['pending', 'pending_confirmation', 'completed'],
         default: 'pending',
     },
     paymentMethod: {

@@ -10,7 +10,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login, googleLogin } = useAuth();
+  const { login, googleLogin, logout } = useAuth();
   const navigate = useNavigate();
 
   const handleToggle = (type: 'user' | 'admin') => {
@@ -27,7 +27,18 @@ export default function Login() {
 
     try {
       const user = await login(email, password);
-      // Optional: Verify role match if desired, but backend login already works
+      
+      // Enforce role-based login restriction
+      if (loginType === 'admin' && user.role !== 'admin') {
+        logout();
+        throw new Error('Access denied. You do not have administrator privileges.');
+      }
+      
+      if (loginType === 'user' && user.role === 'admin') {
+        logout();
+        throw new Error('Administrators must use the Admin Login section.');
+      }
+
       navigate(user.role === 'admin' ? '/admin/dashboard' : '/dashboard');
     } catch (err: any) {
       setError(err.message);
@@ -40,7 +51,14 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await googleLogin(credentialResponse.credential);
+      const user = await googleLogin(credentialResponse.credential);
+      
+      // Google login is only on the user tab, so ensure user isn't an admin
+      if (user.role === 'admin') {
+        logout();
+        throw new Error('Administrators must use the Admin Login section.');
+      }
+      
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Google login failed');

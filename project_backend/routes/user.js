@@ -76,7 +76,8 @@ router.post('/upload-license', protect, (req, res, next) => {
             req.user._id,
             {
                 drivingLicenseNumber,
-                drivingLicenseImage: relativePath
+                drivingLicenseImage: relativePath,
+                licenseStatus: 'pending'
             },
             { new: true }
         ).select('-password');

@@ -13,6 +13,7 @@ import RegisterVehicle from './pages/RegisterVehicle';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminRides from './pages/admin/AdminRides';
+import AdminVerifications from './pages/admin/AdminVerifications';
 import RideInfo from './pages/RideInfo';
 
 
@@ -146,6 +147,14 @@ function AppRoutes() {
         element={
           <PrivateRoute>
             <AdminRides />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/admin/verifications"
+        element={
+          <PrivateRoute>
+            <AdminVerifications />
           </PrivateRoute>
         }
       />

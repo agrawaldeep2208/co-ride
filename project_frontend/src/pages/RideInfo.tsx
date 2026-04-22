@@ -26,6 +26,8 @@ export default function RideInfo() {
   const [isRatingLoading, setIsRatingLoading] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [isPaying, setIsPaying] = useState(false);
+  const [processingMethod, setProcessingMethod] = useState<string | null>(null);
+  const [confirmingPaymentId, setConfirmingPaymentId] = useState<string | null>(null);
 
   const fetchRideDetails = async () => {
     try {
@@ -239,9 +241,110 @@ export default function RideInfo() {
     }
   };
 
+  const handleRazorpayPayment = async (paymentId: string, amount: number) => {
+    try {
+      setProcessingMethod('UPI');
+      const token = localStorage.getItem('token');
+      
+      // 1. Get Razorpay Config (Key ID)
+      const configRes = await fetch(`${API_URL}/payment/config`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const { keyId } = await configRes.json();
+
+      // 2. Create Order on Backend
+      const orderRes = await fetch(`${API_URL}/payment/create-order`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({ paymentId })
+      });
+      const order = await orderRes.json();
+
+      if (!orderRes.ok) throw new Error(order.message || 'Failed to create Razorpay order');
+
+      // 3. Initialize Razorpay Checkout
+      const options = {
+        key: keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "coRide Payments",
+        description: "Ride payment for coRide platform",
+        order_id: order.id,
+        handler: async function (response: any) {
+          try {
+            // 4. Verify Payment on Backend
+            const verifyRes = await fetch(`${API_URL}/payment/verify`, {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}` 
+              },
+              body: JSON.stringify({
+                paymentId,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              })
+            });
+
+            if (verifyRes.ok) {
+              alert('Payment successful and verified!');
+              await fetchPayments();
+            } else {
+              const verifyData = await verifyRes.json();
+              alert(verifyData.message || 'Payment verification failed');
+            }
+          } catch (err) {
+            console.error('Verification error:', err);
+            alert('An error occurred during verification');
+          }
+        },
+        prefill: {
+          name: user?.name,
+          email: user?.email,
+          contact: user?.phone,
+          method: 'upi' // Suggest UPI as default
+        },
+        config: {
+          display: {
+            blocks: {
+              upi: {
+                name: 'Pay via UPI',
+                instruments: [
+                  {
+                    method: 'upi'
+                  }
+                ]
+              }
+            },
+            sequence: ['block.upi'],
+            preferences: {
+              show_default_blocks: true 
+            }
+          }
+        },
+        theme: {
+          color: "#2563eb"
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Error initializing Razorpay');
+    } finally {
+      setProcessingMethod(null);
+    }
+  };
+
   const handlePayment = async (paymentId: string, method: string) => {
     try {
-      setIsPaying(true);
+      setProcessingMethod(method);
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_URL}/payment/${paymentId}/pay`, {
         method: 'PUT',
@@ -253,7 +356,11 @@ export default function RideInfo() {
       });
 
       if (response.ok) {
-        alert(`Payment via ${method} completed successfully!`);
+        if (method === 'Cash') {
+          alert('Cash payment initiated. Please hand over the cash to the driver.');
+        } else {
+          alert(`Payment via ${method} completed successfully!`);
+        }
         await fetchPayments();
       } else {
         const data = await response.json();
@@ -262,7 +369,30 @@ export default function RideInfo() {
     } catch (err) {
       console.error(err);
     } finally {
-      setIsPaying(false);
+      setProcessingMethod(null);
+    }
+  };
+
+  const handleConfirmCash = async (paymentId: string) => {
+    try {
+      setConfirmingPaymentId(paymentId);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/payment/${paymentId}/confirm-cash`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        alert('Cash payment confirmed successfully!');
+        await fetchPayments();
+      } else {
+        const data = await response.json();
+        alert(data.message || 'Failed to confirm payment');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setConfirmingPaymentId(null);
     }
   };
 
@@ -551,15 +681,26 @@ export default function RideInfo() {
                             <div>
                               <p className="font-bold text-gray-900">{passengerName}</p>
                               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                {payment.status === 'completed' ? `${payment.paymentMethod} • ${new Date(payment.completedAt!).toLocaleDateString()}` : 'Payment Pending'}
+                                {payment.status === 'completed' ? `${payment.paymentMethod} • ${new Date(payment.completedAt!).toLocaleDateString()}` : 
+                                 payment.status === 'pending_confirmation' ? 'Action Required: Cash Payment Received?' : 'Payment Pending'}
                               </p>
                             </div>
                           </div>
-                          <div className="text-right">
+                          <div className="flex flex-col items-end space-y-2 text-right">
                             <p className="font-black text-gray-900">₹{payment.amount}</p>
-                            <span className={`text-[10px] font-black uppercase tracking-widest ${payment.status === 'completed' ? 'text-emerald-500' : 'text-amber-500'}`}>
-                              {payment.status}
-                            </span>
+                            {payment.status === 'pending_confirmation' ? (
+                              <button
+                                onClick={() => handleConfirmCash(payment._id)}
+                                disabled={!!confirmingPaymentId}
+                                className="px-3 py-1 bg-emerald-500 text-white rounded-lg text-xs font-black uppercase tracking-wider hover:bg-emerald-600 transition-all disabled:opacity-50"
+                              >
+                                {confirmingPaymentId === payment._id ? 'Confirming...' : 'Confirm Receipt'}
+                              </button>
+                            ) : (
+                              <span className={`text-[10px] font-black uppercase tracking-widest ${payment.status === 'completed' ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                {payment.status === 'pending_confirmation' ? 'Awaiting Confirmation' : payment.status}
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
@@ -582,6 +723,20 @@ export default function RideInfo() {
                             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{myPayment.paymentMethod} • ID: {myPayment.transactionId}</p>
                             <p className="text-xs font-bold text-emerald-600">You can now provide feedback for the ride.</p>
                           </div>
+                        ) : myPayment.status === 'pending_confirmation' ? (
+                          <div className="space-y-4">
+                            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto shadow-sm">
+                              <Shield className="w-10 h-10 text-amber-500 animate-pulse" />
+                            </div>
+                            <h4 className="text-xl font-black text-gray-900">Awaiting Confirmation</h4>
+                            <p className="text-sm font-bold text-gray-500 leading-relaxed">
+                              You've requested to pay <span className="text-gray-900">₹{myPayment.amount}</span> via Cash. 
+                              Please hand over the money to the driver. This status will update once the driver confirms the receipt.
+                            </p>
+                            <div className="pt-4 border-t border-gray-100">
+                              <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">Transaction ID: {myPayment._id.slice(-8).toUpperCase()}</p>
+                            </div>
+                          </div>
                         ) : (
                           <div className="space-y-6">
                             <div>
@@ -593,30 +748,21 @@ export default function RideInfo() {
                               <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center mb-1">Select Payment Method</p>
                               
                               <button
-                                onClick={() => handlePayment(myPayment._id, 'UPI')}
-                                disabled={isPaying}
+                                onClick={() => handleRazorpayPayment(myPayment._id, myPayment.amount)}
+                                disabled={!!processingMethod}
                                 className="w-full py-4 bg-white border-2 border-blue-100 text-blue-600 font-black uppercase tracking-widest rounded-2xl hover:bg-blue-50 transition-all flex items-center justify-center space-x-2 shadow-sm"
                               >
-                                <Shield className="w-4 h-4" />
-                                <span>{isPaying ? 'Processing...' : 'Pay via UPI'}</span>
-                              </button>
-
-                              <button
-                                onClick={() => handlePayment(myPayment._id, 'Wallet')}
-                                disabled={isPaying}
-                                className="w-full py-4 bg-blue-600 text-white font-black uppercase tracking-widest rounded-2xl hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all flex items-center justify-center space-x-2"
-                              >
-                                <CreditCard className="w-4 h-4" />
-                                <span>{isPaying ? 'Processing...' : 'Simulated Wallet'}</span>
+                                {processingMethod === 'UPI' ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div> : <Shield className="w-4 h-4" />}
+                                <span>{processingMethod === 'UPI' ? 'Initializing...' : 'Pay via UPI (Razorpay)'}</span>
                               </button>
 
                               <button
                                 onClick={() => handlePayment(myPayment._id, 'Cash')}
-                                disabled={isPaying}
-                                className="w-full py-4 bg-white border-2 border-emerald-100 text-emerald-600 font-black uppercase tracking-widest rounded-2xl hover:bg-emerald-50 transition-all flex items-center justify-center space-x-2 shadow-sm"
+                                disabled={!!processingMethod}
+                                className="w-full py-4 bg-emerald-500 text-white font-black uppercase tracking-widest rounded-2xl hover:bg-emerald-600 shadow-xl shadow-emerald-100 transition-all flex items-center justify-center space-x-2 shadow-sm"
                               >
-                                <span>₹</span>
-                                <span>{isPaying ? 'Processing...' : 'Pay via Cash'}</span>
+                                {processingMethod === 'Cash' ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div> : <span>₹</span>}
+                                <span>{processingMethod === 'Cash' ? 'Initiating...' : 'Pay via Cash'}</span>
                               </button>
                             </div>
 

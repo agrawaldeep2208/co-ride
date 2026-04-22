@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Car, Search, PlusCircle, Star, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { Car, Search, PlusCircle, Star, ArrowUpRight, ArrowDownLeft, IndianRupee } from 'lucide-react';
 import Layout from '../components/Layout';
 import { useAuth } from '../context/AuthContext';
+import FinancialHealthChart from '../components/analytics/FinancialHealthChart';
+import EarningsTrajectoryChart from '../components/analytics/EarningsTrajectoryChart';
+import MethodDistributionChart from '../components/analytics/MethodDistributionChart';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -13,11 +16,15 @@ export default function Dashboard() {
     requestsReceived: 0,
     requestsSent: 0
   });
+  const [analytics, setAnalytics] = useState<{ chartData: any[], pieData: any[] }>({
+    chartData: [],
+    pieData: []
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchStats = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
@@ -28,31 +35,36 @@ export default function Dashboard() {
           return;
         }
 
-        const response = await fetch('http://localhost:5001/api/user/stats', {
+        // Fetch Stats
+        const statsRes = await fetch('http://localhost:5001/api/user/stats', {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           }
         });
+        const statsData = await statsRes.json();
+        if (statsRes.ok) setDashboardStats(statsData);
 
-        const data = await response.json();
+        // Fetch Analytics
+        const analyticsRes = await fetch('http://localhost:5001/api/payment/analytics', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        const analyticsData = await analyticsRes.json();
+        if (analyticsRes.ok) setAnalytics(analyticsData);
 
-        if (response.ok) {
-          setDashboardStats(data);
-        } else {
-          setError(data.message || 'Failed to fetch dashboard stats');
-          console.error('Stats fetch failed:', data);
-        }
       } catch (err) {
         setError('Error connecting to the server');
-        console.error('Error fetching stats:', err);
+        console.error('Error fetching dashboard data:', err);
       } finally {
         setLoading(false);
       }
     };
 
     if (user) {
-      fetchStats();
+      fetchData();
     }
   }, [user]);
 
@@ -66,64 +78,90 @@ export default function Dashboard() {
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome back, {user?.name}!
-          </h1>
-          <p className="text-gray-600">Here's what's happening with your rides today</p>
+      <div className="max-w-6xl mx-auto space-y-10">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-black text-gray-900 mb-2">
+              Welcome Back, {user?.name.split(' ')[0]}!
+            </h1>
+            <p className="text-gray-500 font-medium">Your ride-sharing overview for the last 30 days</p>
+          </div>
+          <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-100">
+            <div className="p-2 bg-green-50 rounded-xl">
+              <IndianRupee className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Earnings</p>
+              <p className="text-sm font-black text-gray-900">₹{analytics.chartData.reduce((acc, curr) => acc + curr.earnings, 0).toLocaleString()}</p>
+            </div>
+          </div>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 rounded-xl flex items-center">
-            <div className="w-2 h-2 bg-red-500 rounded-full mr-3 animate-pulse"></div>
-            {error}
+          <div className="p-4 bg-red-50 border border-red-200 text-red-600 rounded-2xl flex items-center shadow-sm">
+            <div className="w-3 h-3 bg-red-500 rounded-full mr-4 animate-pulse"></div>
+            <p className="font-bold">{error}</p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
+        {/* Top KPI Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
           {stats.map((stat, index) => (
-            <div key={index} className="bg-white rounded-xl shadow-sm p-5">
-              <div className="flex items-center justify-between mb-3">
-                <div className={`${stat.color} w-10 h-10 rounded-lg flex items-center justify-center`}>
-                  <stat.icon className="w-5 h-5 text-white" />
-                </div>
+            <div key={index} className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 transition-all hover:shadow-md hover:-translate-y-1">
+              <div className={`${stat.color} w-12 h-12 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-gray-100`}>
+                <stat.icon className="w-6 h-6 text-white" />
               </div>
-              <p className="text-xl font-bold text-gray-900 mb-1">
+              <p className="text-3xl font-black text-gray-900 mb-1 leading-none">
                 {loading ? '...' : stat.value}
               </p>
-              <p className="text-xs text-gray-600 font-medium uppercase tracking-wider">{stat.label}</p>
+              <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">{stat.label}</p>
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          <Link
-            to="/rides/search"
-            className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-sm p-6 text-white hover:shadow-lg transition-all transform hover:-translate-y-1"
-          >
-            <Search className="w-10 h-10 mb-4" />
-            <h3 className="text-xl font-bold mb-2">Find a Ride</h3>
-            <p className="text-blue-100">Search for available rides in your area</p>
+        {/* Quick Actions Row */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Link to="/rides/search" className="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl transition-all">
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+              <Search className="w-24 h-24 text-blue-600" />
+            </div>
+            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
+              <Search className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-black text-gray-900">Find a Ride</h3>
+            <p className="text-xs text-gray-500 font-bold mt-1 tracking-tight">Browse available journeys nearby</p>
           </Link>
 
-          <Link
-            to="/rides/create"
-            className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-sm p-6 text-white hover:shadow-lg transition-all transform hover:-translate-y-1"
-          >
-            <PlusCircle className="w-10 h-10 mb-4" />
-            <h3 className="text-xl font-bold mb-2">Create a Ride</h3>
-            <p className="text-green-100">Share your journey with others</p>
+          <Link to="/rides/create" className="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl transition-all">
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+              <PlusCircle className="w-24 h-24 text-green-600" />
+            </div>
+            <div className="w-12 h-12 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center mb-4">
+              <PlusCircle className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-black text-gray-900">Create a Ride</h3>
+            <p className="text-xs text-gray-500 font-bold mt-1 tracking-tight">Post your journey and earn money</p>
           </Link>
 
-          <Link
-            to="/rides/my-rides"
-            className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-sm p-6 text-white hover:shadow-lg transition-all transform hover:-translate-y-1"
-          >
-            <Car className="w-10 h-10 mb-4" />
-            <h3 className="text-xl font-bold mb-2">My Rides</h3>
-            <p className="text-purple-100">Manage your rides and requests</p>
+          <Link to="/rides/my-rides" className="group relative overflow-hidden bg-white p-6 rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl transition-all">
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+              <Car className="w-24 h-24 text-purple-600" />
+            </div>
+            <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mb-4">
+              <Car className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-black text-gray-900">My Rides</h3>
+            <p className="text-xs text-gray-500 font-bold mt-1 tracking-tight">Active bookings and requests</p>
           </Link>
+        </div>
+
+        {/* Analytics Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <FinancialHealthChart data={analytics.chartData} />
+          <div className="grid grid-cols-1 gap-8">
+            <EarningsTrajectoryChart data={analytics.chartData} />
+            <MethodDistributionChart data={analytics.pieData} />
+          </div>
         </div>
       </div>
     </Layout>

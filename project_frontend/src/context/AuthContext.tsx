@@ -12,6 +12,7 @@ interface AuthContextType {
   sendOTP: (email: string) => Promise<void>;
   googleLogin: (idToken: string) => Promise<User>;
   updateUser: (userData: Partial<User>) => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -74,6 +75,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         rating: userData.rating || 0,
         drivingLicenseNumber: userData.drivingLicenseNumber || null,
         drivingLicenseImage: userData.drivingLicenseImage || null,
+        licenseStatus: userData.licenseStatus || 'unuploaded',
         createdAt: userData.createdAt,
       };
 
@@ -137,6 +139,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         rating: userData.rating || 0,
         drivingLicenseNumber: userData.drivingLicenseNumber || null,
         drivingLicenseImage: userData.drivingLicenseImage || null,
+        licenseStatus: userData.licenseStatus || 'unuploaded',
         createdAt: userData.createdAt,
       };
 
@@ -179,6 +182,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         rating: userData.rating || 0,
         drivingLicenseNumber: userData.drivingLicenseNumber || null,
         drivingLicenseImage: userData.drivingLicenseImage || null,
+        licenseStatus: userData.licenseStatus || 'unuploaded',
         createdAt: userData.createdAt,
       };
 
@@ -206,8 +210,47 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
+  const refreshUser = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${API_URL}/user/profile`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) logout();
+        return;
+      }
+
+      const userData = await response.json();
+      const userObj: User = {
+        id: userData._id,
+        email: userData.email,
+        name: userData.fullName || userData.name,
+        phone: userData.phone,
+        role: userData.role,
+        status: userData.status,
+        totalRides: userData.totalRides || 0,
+        rating: userData.rating || 0,
+        drivingLicenseNumber: userData.drivingLicenseNumber || null,
+        drivingLicenseImage: userData.drivingLicenseImage || null,
+        licenseStatus: userData.licenseStatus || 'unuploaded',
+        createdAt: userData.createdAt,
+      };
+
+      setUser(userObj);
+      localStorage.setItem('user', JSON.stringify(userObj));
+    } catch (error) {
+      console.error('Refresh user error:', error);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, sendOTP, googleLogin, updateUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, sendOTP, googleLogin, updateUser, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

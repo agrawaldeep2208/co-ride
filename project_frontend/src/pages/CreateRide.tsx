@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { MapPin, Calendar, Clock, Users, Car, IndianRupee, AlertCircle, CheckCircle, Plus, Navigation } from 'lucide-react';
+import { MapPin, Calendar, Clock, Users, Car, IndianRupee, AlertCircle, CheckCircle, Plus, Navigation, LocateFixed, ShieldCheck } from 'lucide-react';
 import Layout from '../components/Layout';
 import { useAuth } from '../context/AuthContext';
 import { Vehicle } from '../types';
@@ -12,7 +12,7 @@ const MapComponent = lazy(() => import('../components/MapComponent'));
 
 export default function CreateRide() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loadingVehicles, setLoadingVehicles] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -37,8 +37,29 @@ export default function CreateRide() {
   const [endSuggestions, setEndSuggestions] = useState<any[]>([]);
   const [distanceInfo, setDistanceInfo] = useState<{distance: number, duration: number} | null>(null);
   const [settingMarker, setSettingMarker] = useState<'start' | 'end' | null>(null);
+  const [currentPos, setCurrentPos] = useState<[number, number] | null>(null);
+  const [locating, setLocating] = useState(true);
 
   const searchTimeoutRef = useRef<any>(null);
+
+  useEffect(() => {
+    refreshUser();
+    // Get current location
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setCurrentPos([position.coords.latitude, position.coords.longitude]);
+          setLocating(false);
+        },
+        (error) => {
+          console.error("Error getting location:", error);
+          setLocating(false);
+        }
+      );
+    } else {
+      setLocating(false);
+    }
+  }, []);
 
   useEffect(() => {
     const fetchVehicles = async () => {
@@ -61,9 +82,20 @@ export default function CreateRide() {
         setLoadingVehicles(false);
       }
     };
-
     fetchVehicles();
   }, []);
+
+  const getHaversineDistance = (pos1: [number, number], pos2: [number, number]) => {
+    const R = 6371; // Radius of the Earth in km
+    const dLat = (pos2[0] - pos1[0]) * Math.PI / 180;
+    const dLon = (pos2[1] - pos1[1]) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(pos1[0] * Math.PI / 180) * Math.cos(pos2[0] * Math.PI / 180) * 
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +103,19 @@ export default function CreateRide() {
     setLoading(true);
 
     if (!startPos || !endPos) {
-      setError('Please select valid start and destination locations using the autocomplete or map.');
+      return;
+    }
+
+    // Proximity Check (10Km Limit)
+    if (!currentPos) {
+      setError('Please enable location services to verify your proximity to the starting point.');
+      setLoading(false);
+      return;
+    }
+
+    const proximity = getHaversineDistance(currentPos, startPos);
+    if (proximity > 10) {
+      setError(`Proximity Error: You are currently ${proximity.toFixed(1)}km away from the starting point. Rides must start within 10km of your current location to maintain platform trust.`);
       setLoading(false);
       return;
     }
@@ -250,7 +294,26 @@ export default function CreateRide() {
             </div>
           )}
 
-          {!user?.drivingLicenseNumber ? (
+          {/* Proximity Banner */}
+          <div className={`mb-6 p-4 rounded-2xl flex items-center justify-between border-2 transition-all ${
+            locating ? 'bg-gray-50 border-gray-100' :
+            currentPos ? 'bg-blue-50 border-blue-100 text-blue-800' : 'bg-amber-50 border-amber-100 text-amber-800'
+          }`}>
+            <div className="flex items-center space-x-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${locating ? 'bg-gray-200' : 'bg-white shadow-sm'}`}>
+                {locating ? <LocateFixed className="w-5 h-5 text-gray-400 animate-pulse" /> : <ShieldCheck className="w-5 h-5 text-blue-600" />}
+              </div>
+              <div className="text-xs">
+                <p className="font-black uppercase tracking-tight">Proximity Verification</p>
+                <p className="font-bold opacity-70 italic">
+                  {locating ? 'Acquiring GPS Signal...' : 
+                   currentPos ? 'Please ensure your starting point is within a 10km radius of your current location to publish successfully.' : 'Please enable location permissions to verify proximity and create your ride.'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {user?.licenseStatus === 'unuploaded' || !user?.drivingLicenseNumber ? (
             <div className="text-center py-16 bg-gradient-to-br from-red-50 to-orange-50 rounded-2xl border-2 border-dashed border-red-200">
                <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
                   <ShieldAlert className="w-10 h-10 text-red-600" />
@@ -264,6 +327,35 @@ export default function CreateRide() {
                  className="inline-flex items-center space-x-2 px-8 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-red-200"
                >
                  <span>Verify License Now</span>
+               </Link>
+            </div>
+          ) : user.licenseStatus === 'pending' ? (
+            <div className="text-center py-16 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border-2 border-dashed border-blue-200">
+               <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Clock className="w-10 h-10 text-blue-600" />
+               </div>
+               <h2 className="text-2xl font-bold text-gray-900 mb-3">Verification In Progress</h2>
+               <p className="text-gray-600 mb-8 max-w-md mx-auto uppercase text-xs font-black tracking-widest">
+                  Our admin team is reviewing your documents. You will be notified once you are approved to create rides.
+               </p>
+               <div className="inline-flex items-center space-x-2 px-8 py-3 bg-blue-100 text-blue-700 font-bold rounded-xl border border-blue-200">
+                 <span>Status: Evaluation Pending</span>
+               </div>
+            </div>
+          ) : user.licenseStatus === 'rejected' ? (
+            <div className="text-center py-16 bg-gradient-to-br from-rose-50 to-red-50 rounded-2xl border-2 border-dashed border-rose-200">
+               <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <ShieldAlert className="w-10 h-10 text-rose-600" />
+               </div>
+               <h2 className="text-2xl font-bold text-gray-900 mb-3">Verification Rejected</h2>
+               <p className="text-gray-600 mb-8 max-w-md mx-auto">
+                  Your document was not approved by the admin. Please check your profile and re-upload a clear image of your license.
+               </p>
+               <Link
+                 to="/profile"
+                 className="inline-flex items-center space-x-2 px-8 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-rose-100"
+               >
+                 <span>Re-upload Document</span>
                </Link>
             </div>
           ) : loadingVehicles ? (

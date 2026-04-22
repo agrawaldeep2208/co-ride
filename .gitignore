@@ -54,3 +54,8 @@ project_frontend/dist/
 # Application specific files
 db_dump.json
 test_output.txt
+
+# Personal files
+resume.tex
+*.docx
+*.md
